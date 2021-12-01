@@ -1,0 +1,182 @@
+# This config contains the default values for training a wav2vec model with CTC loss and BPE-based vocabulary.
+
+name: &name wav2vec_ctc_group_norm
+
+model:
+  sample_rate: &sample_rate 16000
+  train_ds:
+    manifest_filepath: ???
+    sample_rate: *sample_rate
+    batch_size: ???
+    trim_silence: false
+    max_duration: null
+    shuffle: true
+    is_tarred: true
+    tarred_audio_filepaths: null
+    use_start_end_token: false
+
+  validation_ds:
+    manifest_filepath: ??? #"/home/tbartley/Documents/NeMo_fr/asr_data/model_prep/manifests/test/mls/final_test.json" #???
+    sample_rate: *sample_rate
+    batch_size: ???
+    shuffle: false
+    use_start_end_token: false
+
+  test_ds:
+    manifest_filepath: null
+    sample_rate: *sample_rate
+    batch_size: 8
+    shuffle: false
+    use_start_end_token: false
+  
+  tokenizer:
+    dir: ??? # path to directory which contains either tokenizer.model (bpe) or vocab.txt (for wpe)
+    type: bpe   # Can be either bpe or wpe
+
+  dropout_input: 0.1
+  dropout_features: 0.1
+  final_dim: &enc_final ??? # Use default of embedding_dim
+  n_negatives: 100
+  cross_sample_negatives: 0
+  codebook_negatives: 0
+  negatives_from_everywhere: false
+  logit_temp: 0.1
+  feature_grad_mult: ???
+  use_cer: false
+  normalize_audio: false
+  feature_loss_weight: 0.5
+
+  preprocessor:
+    _target_: wav2vec_ctc_models.ConvFeatureEncoder
+    mode: group_norm
+    conv_bias: false
+    conv_layers:
+    - - 512
+      - 10
+      - 5
+    - - 512
+      - 3
+      - 2
+    - - 512
+      - 3
+      - 2
+    - - 512
+      - 3
+      - 2
+    - - 512
+      - 3
+      - 2
+    - - 512
+      - 2
+      - 2
+    - - 512
+      - 2
+      - 2
+
+  encoder:
+    _target_: wav2vec.wav2vec.Wav2VecTransformerEncoder
+    cfg:
+      dropout: 0.1
+      conv:
+        conv_pos: 128
+        conv_pos_groups: 16
+      encoder:
+        encoder_layers: ???
+        encoder_layerdrop: ???
+        embedding_dim: *enc_final
+        ffn_embedding_dim: ???
+        num_attention_heads: ???
+        dropout: 0.1
+        activation_fn:
+          value: gelu
+        layer_norm_first: false
+
+  masking:
+    mask_prob: 0.065
+    mask_type: static
+    mask_other: 0
+    mask_length: 10
+    no_mask_overlap: false
+    mask_min_space: 2
+    mask_channel_prob: 0.0016
+    mask_channel_type: static
+    mask_channel_other: 0
+    mask_channel_length: 64
+    no_mask_channel_overlap: false
+    mask_channel_min_space: 2
+
+  quantizer:
+    quantize_targets: false
+    quantize_input: false
+    same_quantizer: false
+    latent_vars: 320
+    latent_groups: 2
+    latent_dim: 0
+    latent_temp:
+    - 2
+    - 0.5
+    - 0.999995
+    
+  decoder:
+    _target_: wav2vec_ctc_models.Wav2VecLinearDecoder
+    feat_in: *enc_final
+    num_classes: -1  # filled with vocabulary size from tokenizer at runtime
+    vocabulary: []  # filled with vocabulary from tokenizer at runtime
+
+  optim:
+    name: novograd
+    lr: ??? #0.0005
+    # optimizer arguments
+    betas: [0.9, 0.98]
+    weight_decay: 0.01
+    # scheduler setup
+    sched:
+      name: CosineAnnealing
+      # scheduler config override
+      warmup_steps: null
+      warmup_ratio: .1
+      min_lr: 1e-5
+      last_epoch: -1
+
+trainer:
+  gpus: -1 # number of gpus
+  max_epochs: null
+  max_steps: ??? #400000 # computed at runtime if not set
+  num_nodes: ???
+  accelerator: ddp
+  accumulate_grad_batches: 1
+  amp_backend: apex
+  amp_level: O0
+  checkpoint_callback: false  # Provided by exp_manager
+  logger: false  # Provided by exp_manager
+  log_every_n_steps: 10  # Interval of logging.
+  val_check_interval: .25 # Set to 0.25 to check 4 times per epoch, or an int for number of iterations
+  check_val_every_n_epoch: 1
+  precision: 32
+  sync_batchnorm: true
+  benchmark: false
+
+exp_manager:
+  exp_dir: null
+  name: *name
+  create_tensorboard_logger: true
+  create_checkpoint_callback: true
+  checkpoint_callback_params:
+    monitor: "val_wer"
+    mode: "min"
+    save_top_k: 5
+  create_wandb_logger: false
+  wandb_logger_kwargs:
+    name: null
+    project: null
+    entity: null
+  resume_if_exists: true
+  resume_ignore_no_checkpoint: true
+
+hydra:
+  run:
+    dir: .
+  job_logging:
+    root:
+      handlers: null
+
